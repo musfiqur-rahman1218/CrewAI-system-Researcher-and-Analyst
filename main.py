@@ -1,6 +1,5 @@
 import os
 import yaml
-import time # Added for retry logic
 from dotenv import load_dotenv
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai_tools import SerperDevTool
@@ -8,14 +7,17 @@ from crewai_tools import SerperDevTool
 # 1. Load Environment Variables
 load_dotenv()
 
-# 2. Configure the LLM (Using Gemini 2.0 Flash)
-# We use 'gemini/' because that is the official LiteLLM prefix for Google AI Studio
-gemini_llm = LLM(
-    model="gemini/gemini-2.0-flash", 
-    api_key=os.getenv("GEMINI_API_KEY"),
-    max_retries=3,          # Bonus: Retry logic for API failures
+# 2. Configure the LLM via OpenRouter
+# We use OpenRouter as the provider to avoid direct Gemini API quota issues.
+# OpenRouter is OpenAI-compatible, so we set the base_url accordingly.
+openrouter_llm = LLM(
+    model="openrouter/google/gemini-2.0-flash-001",
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+    max_retries=3,          # Bonus: Implements retry logic for API failures
     verbose=True
 )
+
 # 3. Manually Load YAML Configurations
 with open('config/agents.yaml', 'r') as f:
     agents_config = yaml.safe_load(f)
@@ -26,23 +28,23 @@ with open('config/tasks.yaml', 'r') as f:
 # 4. Initialize the Search Tool
 search_tool = SerperDevTool()
 
-# 5. Define Agents
+# 5. Define Agents using YAML config
 researcher = Agent(
     config=agents_config['researcher'],
     tools=[search_tool],
-    llm=gemini_llm,
+    llm=openrouter_llm,
     verbose=True,
     allow_delegation=False
 )
 
 analyst = Agent(
     config=agents_config['analyst'],
-    llm=gemini_llm,
+    llm=openrouter_llm,
     verbose=True,
     allow_delegation=False
 )
 
-# 6. Define Tasks
+# 6. Define Tasks using YAML config
 research_task = Task(
     config=tasks_config['research_task'],
     agent=researcher
@@ -61,7 +63,7 @@ crew = Crew(
     verbose=True
 )
 
-# 8. Execution with Enhanced Error Handling
+# 8. Execution with Error Handling
 if __name__ == "__main__":
     domain = input("Enter the company domain to research (e.g., shopify.com): ")
     
@@ -72,11 +74,7 @@ if __name__ == "__main__":
         print("\n\n################################################")
         print("## MARKET RESEARCH REPORT GENERATED SUCCESSFULLY ##")
         print("################################################")
+        print("Final report saved to: output/report.md")
 
     except Exception as e:
-        # Check if it is a rate limit error to provide a better message
-        if "429" in str(e):
-            print("\n❌ Rate Limit Hit: The Free Tier quota is full.")
-            print("Action: Please wait about 60 seconds and try again, or use a different Google AI Studio key.")
-        else:
-            print(f"\n❌ An error occurred: {e}")
+        print(f"\n❌ An error occurred: {e}")
